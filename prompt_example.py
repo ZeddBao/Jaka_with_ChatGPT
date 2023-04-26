@@ -26,14 +26,14 @@ def write_code(code):
 
 
 def prompt2motion():
-    openai.api_key = "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"
+    openai.api_key = "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"
     messages = [
         {"role": "system", "content": "You are a helpful assistant."},
         {"role": "user", "content": "如果是调整追踪参数的指令，回答请以如下的形式输出：\n"
-                                    "例如需要参考点向下一点，输出字符串'$$y--$$，向上一点则输出'$$y++$$，向左一点则输出'$$x--$$，向右一点则输出'$$x++$$，\n"
-                                    "参考点向下30个像素点则输出'$$y-=30$$，向右30个像素点则输出'$$x+=30$$，\n"
-                                    "例如需要改变追踪id为1，输出字符串'$$id=1$$'\n"},
-        {"role": "user", "content": "如果是运动控制类的指令，回答请直接输出在程序代码块里，在代码块之外回答'动作执行完毕！'。不要导入任何库。不要导入任何库。不要导入任何库。"
+                                    "例如需要参考点向下一点，输出字符串'@@y--@@，向上一点则输出'@@y++@@，向左一点则输出'@@x--@@，向右一点则输出'@@x++@@，\n"
+                                    "参考点向下30个像素点则输出'@@y-=30@@，向右30个像素点则输出'@@x+=30@@，\n"
+                                    "例如需要改变追踪id为1，输出字符串'@@id=1@@'\n"
+                                    "如果是运动控制类的指令，回答请直接输出在程序代码块里，在代码块之外回答'动作执行完毕！'。不要导入任何库。不要导入任何库。不要导入任何库。"
         # {"role": "user", "content": "现在有一个控制机械臂运动的python函数：robot.joint_move(joint_pos, move_mode, is_block, speed)。\n"
         #                             "joint_pos: 类型为一个6元素的元组，元组中的每个元素代表机械臂对应关节旋转角度，正数为顺时针，负数为逆时针，单位：rad。\n"
         #                             "move_mode: 类型为int变量，默认为 1，1 代表相对运动。\n "

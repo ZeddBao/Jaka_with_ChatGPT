@@ -103,16 +103,17 @@ class VideoThread(QThread):
                     else:
                         y_output = 0
                     if self.enable_track and self.robot is not None:
-                        self.robot.servo_j(joint_pos=[-0.5*x_output, -y_output, 2 * y_output, -y_output, -x_output, 0], move_mode=1)
+                        self.robot.servo_j(
+                            joint_pos=[-0.5 * x_output, -y_output, 2 * y_output, -y_output, -x_output, 0], move_mode=1)
                         if count % 10 == 0:
                             robot_joint = self.robot.get_joint_position()
                             if robot_joint[0] == 0:
-                                robot_joint = [round(num,2) for num in robot_joint[1]]
+                                robot_joint = [round(num, 2) for num in robot_joint[1]]
                             else:
                                 robot_joint = [-1, -1, -1, -1, -1, -1]
                             robot_tcp = self.robot.get_tcp_position()
                             if robot_tcp[0] == 0:
-                                robot_tcp = [round(num,2) for num in robot_tcp[1]]
+                                robot_tcp = [round(num, 2) for num in robot_tcp[1]]
                             else:
                                 robot_tcp = [-1, -1, -1, -1, -1, -1]
                             self.robot_position_info_signal.emit([robot_joint, robot_tcp])
@@ -222,8 +223,6 @@ class GPT:
 
     enable_say = True
 
-    text_signal = pyqtSignal(str)
-
     def __init__(self):
         openai.api_key = self.key
         # self.messages = [
@@ -236,7 +235,10 @@ class GPT:
             {"role": "user",
              "content": "接下来你需要在代码块里输出我要求的代码，我会把你输出的代码写入已有的程序框架中，并自动运行修改后的程序使机械臂运动。记住：不要导入任何库。不要导入任何库。不要导入任何库。"},
             {"role": "assistant", "content": "好的，我会尽力遵守您的要求。有什么可以帮您的吗？"},
-            {"role": "user", "content": "如果是运动控制类的指令，回答请直接输出在程序代码块里，在代码块之外回答'动作执行完毕！'。不要导入任何库。不要导入任何库。不要导入任何库。"
+            {"role": "user", "content": "如果是调整追踪参数的指令，回答请以如下的形式输出：'没问题！@@指令@@'\n"
+                                        "例如需要开始录像，输出字符串'没问题！@@Start REC@@'\n"
+                                        "例如需要改变追踪id为1，输出字符串'没问题！@@id=1@@'\n"
+                                        "如果是运动控制类的指令，回答请直接输出在程序代码块里，在代码块之外回答'动作执行完毕！'。不要导入任何库。不要导入任何库。不要导入任何库。"
                                         "现在有一个控制机械臂每个关节运动的python函数：robot.joint_move(joint_pos, 1, False, 1)。\n"
                                         "joint_pos: 类型为一个6元素的元组，元组中的每个元素代表机械臂对应关节旋转角度，正数为顺时针，负数为逆时针，单位：rad。\n"
                                         "你只需要按照后面例子的格式进行回答。例子: robot.joint_move((0, PI/2, 0, 0, 0, 0), 1, False, 1)。\n"
@@ -262,31 +264,16 @@ class GPT:
         self.messages.append(ans)
         return ans.content
 
-    def control_robot(self, question):
+    def get_answer_delete(self, question):
         completion = openai.ChatCompletion.create(
             model=self.model,
             messages=self.messages
         )
         self.input_message(question)
         self.messages.append({"role": "user", "content": question})
-        ans = completion.choices[0].message
-        code = get_code(ans.content)
-        if code == "":
-            self.messages.append(ans)
-            return ans.content
-        else:
-            self.messages.append({"role": "assistant", "content": "动作执行完毕！"})
-            write_code(code)
-            flag = os.system("python temp.py")
-            if flag != 0:
-                return "动作执行失败！"
-            elif self.enable_say:   # 机械臂运动完毕后，允许说话，就不输出代码
-                return "动作执行完毕！"
-            elif not self.enable_say:   # 机械臂运动完毕后，不允许说话，就输出代码
-                # ans.content = ans.content.replace("\n", "")
-                # ans.content = re.sub(r"(.*)```(.*)```", "", ans.content)
-                # self.messages.append(ans)
-                return ans.content
+        ans = completion.choices[0].message.content
+        self.messages.append({"role": "assistant", "content": "好的"})
+        return ans
 
     def input_message(self, text):
         message = {"role": "user", "content": text}
@@ -301,8 +288,10 @@ class GPT:
 
 
 class GetAnsThread(QThread):
+    enable_say = False
     ans_signal = pyqtSignal(str)
     gpt_signal = pyqtSignal(GPT)
+    cmd_signal = pyqtSignal(list)
 
     def __init__(self, question="你好", gpt=GPT()):
         super().__init__()
@@ -311,10 +300,27 @@ class GetAnsThread(QThread):
 
     def run(self):
         try:
-            ans = self.gpt.control_robot(self.question)
-            self.ans_signal.emit("System：" + ans + "\n")
-            if self.gpt.enable_say:
-                text2audio(ans)
+            ans = self.gpt.get_answer_delete(self.question)
+
+            code, instructions, ans = text_process(ans)
+            if instructions:
+                self.cmd_signal.emit(instructions)
+            if code == "":
+                self.ans_signal.emit("System：" + ans + "\n")
+                if self.enable_say:
+                    text2audio(ans)
+            else:
+                write_code(code)
+                flag = os.system("python temp.py")
+                if flag != 0:
+                    self.ans_signal.emit("System：动作执行失败！\n")
+                    if self.enable_say:
+                        text2audio("动作执行失败！")
+                else:
+                    self.ans_signal.emit("System：动作执行完毕！\n")
+                    if self.enable_say:
+                        text2audio("动作执行完毕！")
+
             self.gpt_signal.emit(self.gpt)
         except requests.exceptions.ConnectionError:
             self.ans_signal.emit("System：连接错误！\n")
@@ -322,19 +328,19 @@ class GetAnsThread(QThread):
             self.ans_signal.emit("System：参数无效或账户权限问题！\n")
 
     def toggle_say(self):
-        self.gpt.enable_say = not self.gpt.enable_say
-        self.ans_signal.emit("System：语音播报已" + ("开启" if self.gpt.enable_say else "关闭") + "！\n")
+        self.enable_say = not self.enable_say
+        self.ans_signal.emit("System：语音播报已" + ("开启" if self.enable_say else "关闭") + "！\n")
 
 
 def get_code(text):
     pattern = re.compile(r"```python(.*?)```", re.S)
     match = pattern.findall(text)
     if match:
-        return match[0]
+        return match[0], pattern.sub("", text)
     pattern = re.compile(r"```(.*?)```", re.S)
     match = pattern.findall(text)
     if match:
-        return match[0]
+        return match[0], pattern.sub("", text)
     return ""
 
 
@@ -344,6 +350,27 @@ def write_code(code):
     code = example.replace("# replace the text", code)
     with open("temp.py", "w") as f:
         f.write(code)
+
+
+def text_process(text):
+    digit = []
+    cmd = []
+    code, text = get_code(text)
+    pattern = re.compile(r"@@(.*?)@@")
+    match = pattern.findall(text)
+    pattern2 = re.compile(r"\d+")
+    # 找到字符串中的数字，返回该数字和剩下的文本
+    for match_text in match:
+        text = text.replace(pattern, "")
+        instruction = pattern2.findall(match_text)
+        if instruction:
+            digit.append(int(instruction[0]))
+            cmd.append(match_text.replace(instruction[0], ""))
+        else:
+            digit.append(None)
+            cmd.append(match_text)
+    instructions = list(zip(cmd, digit))
+    return code, instructions, text
 
 
 class RecordThread(QThread):
@@ -373,8 +400,9 @@ class RecordThread(QThread):
 class WakeThread(QThread):
     enable_wake = False
 
-    text_signal = pyqtSignal(str)
+    ans_signal = pyqtSignal(str)
     gpt_signal = pyqtSignal(GPT)
+    cmd_signal = pyqtSignal(list)
 
     def __init__(self, question="你好", gpt=GPT()):
         super().__init__()
@@ -395,13 +423,31 @@ class WakeThread(QThread):
                     elif self.question in ["再见", "退下吧", "拜拜", "再見", "拜拜拜拜"]:
                         text2audio("爷走咯！")
                         flag = 1
-                        break
-                    answer = self.gpt.control_robot(self.question)
-                    self.text_signal.emit("System: " + answer + "\n")
+                        break   # 退出一级循环
+                    ans = self.gpt.get_answer_delete(self.question)
+
+                    code, instructions, ans = text_process(ans)
+                    if instructions:
+                        self.cmd_signal.emit(instructions)
+                    if code == "":
+                        self.ans_signal.emit("System：" + ans + "\n")
+                        text2audio(ans)
+                    else:
+                        write_code(code)
+                        flag = os.system("python temp.py")
+                        if flag != 0:
+                            self.ans_signal.emit("System：动作执行失败！\n")
+                            text2audio("动作执行失败！")
+                        else:
+                            self.ans_signal.emit("System：动作执行完毕！\n")
+                            text2audio("动作执行完毕！")
+
+                    self.ans_signal.emit("System: " + ans + "\n")
                     self.gpt_signal.emit(self.gpt)
-                    text2audio(answer)
+                    text2audio(ans)
+
                 if flag:
-                    break
+                    break   # 退出二级循环
 
     def stop(self):
         self.enable_wake = False

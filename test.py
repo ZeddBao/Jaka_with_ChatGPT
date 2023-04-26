@@ -1,6 +1,8 @@
-import os
-flag = os.system("python temp.py")
-if flag != 0:
-    print("动作执行失败！")
-else:
-    print("动作执行成功！")
+import cv2
+
+cap = cv2.VideoCapture(0)
+while True:
+    ret, frame = cap.read()
+    cv2.imshow('frame', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
