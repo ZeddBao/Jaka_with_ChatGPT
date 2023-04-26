@@ -1,0 +1,8 @@
+# .gitignore
+
+*.log
+.idea/
+test.py
+temp.py
+result.mp4
+prompt_example.py
