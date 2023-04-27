@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QApplication, QHBoxLayout, QMainWindow, QSplitter, Q
     QLineEdit, QPushButton, QScrollArea, QSpinBox
 import jkrc
 import track_widgets as tw
-import os
 
 PI = 3.1415926
 ABS = 0  # 绝对运动
@@ -177,13 +176,14 @@ class MyWindow(QMainWindow):
         # self.record_thread = tw.RecordThread()
 
         # 创建一个新的线程语音唤醒
-        self.wake_thread = tw.WakeThread(gpt=self.GPT)
-        self.wake_thread.ans_signal.connect(self.text_edit.append)
+        self.wake_thread = tw.WakeThread(self.GPT)
+        self.wake_thread.text_signal.connect(self.text_edit.append)
         self.wake_thread.gpt_signal.connect(self.update_gpt)
 
         ############################################################################################################
 
         # 连接信号和槽
+        self.record_button.clicked.connect(self.toggle_record)
         self.wake_button.clicked.connect(self.toggle_wake)
         self.GPT_button.clicked.connect(self.toggle_gpt)
         self.send_button.clicked.connect(self.send_message)
@@ -197,16 +197,12 @@ class MyWindow(QMainWindow):
         self.camera_selector.camera_index_signal.connect(self.change_camera)
         self.camera_refresh_button.clicked.connect(self.refresh_camera)
         self.camera_button.clicked.connect(self.toggle_camera)
-        self.record_button.clicked.connect(self.toggle_record)
 
         self.display_obj_button.clicked.connect(self.display_obj_info)
         self.choose_button.clicked.connect(self.select_id)
         self.track_button.clicked.connect(self.toggle_track)
 
         self.video.mouse_signal.connect(self.update_ref)
-
-        self.get_gpt_answer_thread.cmd_signal.connect(self.cmd_executor)
-        self.wake_thread.cmd_signal.connect(self.cmd_executor)
 
         ############################################################################################################
 
@@ -219,7 +215,6 @@ class MyWindow(QMainWindow):
         self.robot.enable_robot()
         # self.robot.servo_move_enable(True)
         self.video_thread.robot = self.robot
-        os.system("python jaka_reset.py")
         self.text_edit.append("System: 机器人已连接！\n")
 
     # 断开机器人
@@ -346,7 +341,7 @@ class MyWindow(QMainWindow):
         self.target_id = target_id
         self.video_thread.target_id = self.target_id
         # self.toggle_camera()
-        self.text_edit.append("System: 已设置目标ID为" + str(self.target_id) + "！\n")
+        self.text_edit.append("System: 目标ID为" + str(self.target_id) + "！\n")
 
     # def ask_id(self):
     #     self.text_edit.append("System: 请选择目标ID！输入'cancel'取消！\n")
@@ -390,7 +385,7 @@ class MyWindow(QMainWindow):
         self.text_edit.append("User：" + text + "\n")
         self.line_edit.clear()
         if self.enable_GPT:
-            self.get_gpt_answer_thread.question = text
+            self.get_gpt_answer_thread.gpt.input_message(text)
             self.get_gpt_answer_thread.start()
 
     def audio2text(self):
@@ -432,46 +427,6 @@ class MyWindow(QMainWindow):
             self.wake_thread.terminate()
             self.wake_button.setText("打开唤醒模式")
             self.text_edit.append("System: 唤醒模式已关闭！\n")
-
-    def cmd_executor(self, instructions):
-        for instruction in instructions:
-            if instruction[0] == "Start REC":
-                if not self.video_thread.enable:
-                    self.text_edit.append("System: 请开启摄像头！\n")
-                    tw.text2audio("请开启摄像头！")
-                    continue
-                if self.video_thread.enable_record:
-                    self.text_edit.append("System: 请勿重复开启录像!\n")
-                    tw.text2audio("请勿重复开启录像!")
-                    continue
-                else:
-                    self.video_thread.enable_record = True
-                    self.text_edit.append("System: 开始录像!\n")
-                    tw.text2audio("已为您开启录像!")
-            elif instruction[0] == "Stop REC":
-                if not self.video_thread.enable:
-                    self.text_edit.append("System: 请开启摄像头！\n")
-                    tw.text2audio("请开启摄像头！")
-                    continue
-                if self.video_thread.enable_record:
-                    self.video_thread.enable_record = False
-                    self.text_edit.append("System: 停止录像!\n")
-                    tw.text2audio("已为您停止录像!")
-                else:
-                    self.text_edit.append("System: 录像未开始!\n")
-                    tw.text2audio("录像未开始!")
-                    continue
-            elif instruction[0] == "id=":
-                target_id = int(instruction[1])
-                if target_id not in [obj[3] for obj in self.video_thread.obj_info]:
-                    self.text_edit.append("System: 无效ID！\n")
-                    tw.text2audio("无效ID！")
-                    continue
-                else:
-                    self.target_id = target_id
-                    self.video_thread.target_id = self.target_id
-                    self.text_edit.append("System: 目标ID为" + str(self.target_id) + "！\n")
-                    tw.text2audio("已为您设置目标ID为" + str(self.target_id) + "！")
 
 
 if __name__ == '__main__':

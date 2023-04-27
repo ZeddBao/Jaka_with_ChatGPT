@@ -31,7 +31,6 @@ class VideoThread(QThread):
     # 硬件相关
     robot = None
     det = Detector()
-    video_writer = None
 
     # 信号相关
     frame_ready = pyqtSignal(np.ndarray)
@@ -59,6 +58,7 @@ class VideoThread(QThread):
         s = time.time()
         self.enable = True
         count = 0
+        VideoWriter = None
 
         while self.enable:
             # start_time = time.time()
@@ -67,10 +67,10 @@ class VideoThread(QThread):
             if not ret:  # 读取失败
                 break
             if self.enable_record:
-                if self.video_writer is None:
-                    fourcc = cv2.VideoWriter_fourcc('X', 'V', 'I', 'D')
-                    self.video_writer = cv2.VideoWriter('output.avi', fourcc, 18, (frame.shape[1], frame.shape[0]))
-                self.video_writer.write(frame)
+                if VideoWriter is None:
+                    fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+                    VideoWriter = cv2.VideoWriter('result.mp4', fourcc, 18, (frame.shape[1], frame.shape[0]))
+                VideoWriter.write(frame)
 
             if self.rx == 0:  # 初始化中心点
                 self.w = frame.shape[1]
@@ -91,29 +91,28 @@ class VideoThread(QThread):
                     ex = obj[0] - self.rx
                     ey = obj[1] - self.ry
                     if ex > 10:
-                        x_output = 0.005
+                        x_output = 0.004
                     elif ex < -10:
-                        x_output = -0.005
+                        x_output = -0.004
                     else:
                         x_output = 0
                     if ey > 10:
-                        y_output = 0.0005
+                        y_output = 0.001
                     elif ey < -10:
-                        y_output = -0.0005
+                        y_output = -0.001
                     else:
                         y_output = 0
                     if self.enable_track and self.robot is not None:
-                        self.robot.servo_j(
-                            joint_pos=[-0.2 * x_output, -y_output, 2 * y_output, -y_output, -x_output, 0], move_mode=1)
+                        self.robot.servo_j(joint_pos=[-0.5*x_output, -y_output, 2 * y_output, -y_output, -x_output, 0], move_mode=1)
                         if count % 10 == 0:
                             robot_joint = self.robot.get_joint_position()
                             if robot_joint[0] == 0:
-                                robot_joint = [round(num, 2) for num in robot_joint[1]]
+                                robot_joint = [round(num,2) for num in robot_joint[1]]
                             else:
                                 robot_joint = [-1, -1, -1, -1, -1, -1]
                             robot_tcp = self.robot.get_tcp_position()
                             if robot_tcp[0] == 0:
-                                robot_tcp = [round(num, 2) for num in robot_tcp[1]]
+                                robot_tcp = [round(num,2) for num in robot_tcp[1]]
                             else:
                                 robot_tcp = [-1, -1, -1, -1, -1, -1]
                             self.robot_position_info_signal.emit([robot_joint, robot_tcp])
@@ -133,7 +132,7 @@ class VideoThread(QThread):
         self.rx = self.ry = 0
         self.w = self.h = 0
         e = time.time()
-        # print("avr", (e-s)/count)
+        # print("avr",(e-s)/count)
 
     def stop(self):
         self.enable = False
@@ -170,6 +169,11 @@ class VideoLabel(QLabel):
         x = event.x()
         y = event.y()
         self.mouse_signal.emit(x, y, self.width(), self.height())
+        # if self.last_point is not None:
+        #     self.painter.eraseRect(QRect(self.last_point, QSize(5, 5)))
+        # self.painter.setPen(QPen(QColor(255, 0, 0), 50))  # 设置画笔颜色和宽度
+        # self.painter.drawPoint(x, y)
+        # self.last_point = QPoint(x, y)
 
 
 class Audio2TextThread(QThread):
@@ -218,50 +222,71 @@ class GPT:
 
     enable_say = True
 
+    text_signal = pyqtSignal(str)
+
     def __init__(self):
         openai.api_key = self.key
+        # self.messages = [
+        #     {"role": "system", "content": "You are a helpful assistant."},
+        #     {"role": "user", "content": "接下来的回答不要超过30字。"},
+        #     {"role": "assistant", "content": "好的，我会尽力遵守您的要求。有什么可以帮您的吗？"},
+        # ]
         self.messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user",
              "content": "接下来你需要在代码块里输出我要求的代码，我会把你输出的代码写入已有的程序框架中，并自动运行修改后的程序使机械臂运动。记住：不要导入任何库。不要导入任何库。不要导入任何库。"},
             {"role": "assistant", "content": "好的，我会尽力遵守您的要求。有什么可以帮您的吗？"},
-            {"role": "user", "content": "如果是调整追踪参数的指令，回答请以如下的形式输出：'没问题！@@指令@@'\n"
-                                        "例如需要开始录像，输出字符串'没问题！@@Start REC@@'\n"
-                                        "例如需要改变追踪id为1，输出字符串'没问题！@@id=1@@'\n"
-                                        "如果是运动控制类的指令，回答请直接输出在程序在代码块```python ```里。不要导入任何库。不要导入任何库。不要导入任何库。"
-                                        "现在有一个控制机械臂每个关节运动的python函数：```python\nrobot.joint_move(joint_pos, 1, False, 1)\n```\n"
+            {"role": "user", "content": "如果是运动控制类的指令，回答请直接输出在程序代码块里，在代码块之外回答'动作执行完毕！'。不要导入任何库。不要导入任何库。不要导入任何库。"
+                                        "现在有一个控制机械臂每个关节运动的python函数：robot.joint_move(joint_pos, 1, False, 1)。\n"
                                         "joint_pos: 类型为一个6元素的元组，元组中的每个元素代表机械臂对应关节旋转角度，正数为顺时针，负数为逆时针，单位：rad。\n"
-                                        "你只需要按照后面例子的格式进行回答。例子: ```python\nrobot.joint_move((0, PI/2, 0, 0, 0, 0), 1, False, 1)\n```\n"
-                                        "记住：一定要输出程序在代码块```python ```里。"
-                                        "还有一个控制机械臂运动的python函数：```python\nrobot.linear_move(end_pos, 1, False, 30)\n```\n"
+                                        "你只需要按照后面例子的格式进行回答。例子: robot.joint_move((0, PI/2, 0, 0, 0, 0), 1, False, 1)。\n"
+                                        "记住：一定要输出程序代码块，然后在代码块之外输出语句'动作执行完毕！'。只要输出程序代码块，然后在代码块之外输出语句'动作执行完毕！'。"
+                                        "还有一个控制机械臂运动的python函数：robot.linear_move(end_pos, 1, False, 10)。\n"
                                         "end_pos: 类型为一个6元素的元组(x, y, z, rx, ry, rz)，"
                                         "元组中的每个元素代表向该方向上移动的距离，x向左正向右负，y向前正向后负，z向上正向下负，单位：mm，注意单位的换算。\n"
-                                        "你只需要按照后面例子的格式进行回答。例子: ```python\nrobot.linear_move((20, 100, -50, 0, 0, 0), 1, False, 30)\n```\n"
+                                        "你只需要按照后面例子的格式进行回答。例子: robot.linear_move((20, 100, -50, 0, 0, 0), 1, False, 10)。\n"
                                         "如果要求方向是斜向方向，需要用勾股定理计算，例如要求向左下移动20 mm，应输出："
-                                        "```python\nrobot.linear_move((20/math.sqrt(2), 0, -20/math.sqrt(2), 0, 0, 0), 1, False, 30)\n```\n"
-                                        "记住：一定要输出程序在代码块```python ```里'。只要输出程序在代码块```python ```里。"},
+                                        "robot.linear_move((20/math.sqrt(2), 0, -20/math.sqrt(2), 0, 0, 0), 1, False, 10)\n"
+                                        "记住：一定要输出程序代码块里，然后在代码块之外输出语句'动作执行完毕！'。只要输出程序代码块，然后在代码块之外输出语句'动作执行完毕！'。"},
             {"role": "assistant", "content": "好的，那么您需要我做什么样的代码呢？"}
         ]
 
     def get_answer(self, question):
-        self.input_message(question)
         completion = openai.ChatCompletion.create(
             model=self.model,
             messages=self.messages
         )
+        self.input_message(question)
+        self.messages.append({"role": "user", "content": question})
         ans = completion.choices[0].message
         self.messages.append(ans)
         return ans.content
 
-    def get_answer_delete(self, question):
-        self.input_message(question)
+    def control_robot(self, question):
         completion = openai.ChatCompletion.create(
             model=self.model,
             messages=self.messages
         )
+        self.input_message(question)
+        self.messages.append({"role": "user", "content": question})
         ans = completion.choices[0].message
-        self.messages.append(ans)
-        return ans.content
+        code = get_code(ans.content)
+        if code == "":
+            self.messages.append(ans)
+            return ans.content
+        else:
+            self.messages.append({"role": "assistant", "content": "动作执行完毕！"})
+            write_code(code)
+            flag = os.system("python temp.py")
+            if flag != 0:
+                return "动作执行失败！"
+            elif self.enable_say:   # 机械臂运动完毕后，允许说话，就不输出代码
+                return "动作执行完毕！"
+            elif not self.enable_say:   # 机械臂运动完毕后，不允许说话，就输出代码
+                # ans.content = ans.content.replace("\n", "")
+                # ans.content = re.sub(r"(.*)```(.*)```", "", ans.content)
+                # self.messages.append(ans)
+                return ans.content
 
     def input_message(self, text):
         message = {"role": "user", "content": text}
@@ -276,10 +301,8 @@ class GPT:
 
 
 class GetAnsThread(QThread):
-    enable_say = False
     ans_signal = pyqtSignal(str)
     gpt_signal = pyqtSignal(GPT)
-    cmd_signal = pyqtSignal(list)
 
     def __init__(self, question="你好", gpt=GPT()):
         super().__init__()
@@ -288,27 +311,10 @@ class GetAnsThread(QThread):
 
     def run(self):
         try:
-            ans = self.gpt.get_answer_delete(self.question)
-
-            code, instructions, ans = text_process(ans)
-            if instructions:
-                self.cmd_signal.emit(instructions)
-            if code == "":
-                self.ans_signal.emit("System：" + ans + "\n")
-                if self.enable_say:
-                    text2audio(ans)
-            else:
-                write_code(code)
-                flag = os.system("python temp.py")
-                if flag != 0:
-                    self.ans_signal.emit("System：动作执行失败！\n")
-                    if self.enable_say:
-                        text2audio("动作执行失败！")
-                else:
-                    self.ans_signal.emit("System：动作执行完毕！\n")
-                    if self.enable_say:
-                        text2audio("动作执行完毕！")
-
+            ans = self.gpt.control_robot(self.question)
+            self.ans_signal.emit("System：" + ans + "\n")
+            if self.gpt.enable_say:
+                text2audio(ans)
             self.gpt_signal.emit(self.gpt)
         except requests.exceptions.ConnectionError:
             self.ans_signal.emit("System：连接错误！\n")
@@ -316,20 +322,20 @@ class GetAnsThread(QThread):
             self.ans_signal.emit("System：参数无效或账户权限问题！\n")
 
     def toggle_say(self):
-        self.enable_say = not self.enable_say
-        self.ans_signal.emit("System：语音播报已" + ("开启" if self.enable_say else "关闭") + "！\n")
+        self.gpt.enable_say = not self.gpt.enable_say
+        self.ans_signal.emit("System：语音播报已" + ("开启" if self.gpt.enable_say else "关闭") + "！\n")
 
 
 def get_code(text):
     pattern = re.compile(r"```python(.*?)```", re.S)
     match = pattern.findall(text)
     if match:
-        return match[0], pattern.sub("", text)
+        return match[0]
     pattern = re.compile(r"```(.*?)```", re.S)
     match = pattern.findall(text)
     if match:
-        return match[0], pattern.sub("", text)
-    return "", text
+        return match[0]
+    return ""
 
 
 def write_code(code):
@@ -338,27 +344,6 @@ def write_code(code):
     code = example.replace("# replace the text", code)
     with open("temp.py", "w") as f:
         f.write(code)
-
-
-def text_process(text):
-    digit = []
-    cmd = []
-    code, text = get_code(text)
-    pattern = re.compile(r"@@(.*?)@@")
-    match = pattern.findall(text)
-    text = pattern.sub("", text)
-    pattern = re.compile(r"\d+")
-    # 找到字符串中的数字，返回该数字和剩下的文本
-    for match_text in match:
-        digits = pattern.findall(match_text)
-        if digits:
-            digit.append(int(digits[0]))
-            cmd.append(match_text.replace(digits[0], ""))
-        else:
-            digit.append(None)
-            cmd.append(match_text)
-    instructions = list(zip(cmd, digit))
-    return code, instructions, text
 
 
 class RecordThread(QThread):
@@ -388,9 +373,8 @@ class RecordThread(QThread):
 class WakeThread(QThread):
     enable_wake = False
 
-    ans_signal = pyqtSignal(str)
+    text_signal = pyqtSignal(str)
     gpt_signal = pyqtSignal(GPT)
-    cmd_signal = pyqtSignal(list)
 
     def __init__(self, question="你好", gpt=GPT()):
         super().__init__()
@@ -411,29 +395,13 @@ class WakeThread(QThread):
                     elif self.question in ["再见", "退下吧", "拜拜", "再見", "拜拜拜拜"]:
                         text2audio("爷走咯！")
                         flag = 1
-                        break   # 退出一级循环
-                    ans = self.gpt.get_answer_delete(self.question)
-
-                    code, instructions, ans = text_process(ans)
-                    if instructions:
-                        self.cmd_signal.emit(instructions)
-                    if code == "":
-                        self.ans_signal.emit("System：" + ans + "\n")
-                        text2audio(ans)
-                    else:
-                        write_code(code)
-                        flag = os.system("python temp.py")
-                        if flag != 0:
-                            self.ans_signal.emit("System：动作执行失败！\n")
-                            text2audio("动作执行失败！")
-                        else:
-                            self.ans_signal.emit("System：动作执行完毕！\n")
-                            text2audio("动作执行完毕！")
-
+                        break
+                    answer = self.gpt.control_robot(self.question)
+                    self.text_signal.emit("System: " + answer + "\n")
                     self.gpt_signal.emit(self.gpt)
-
+                    text2audio(answer)
                 if flag:
-                    break   # 退出二级循环
+                    break
 
     def stop(self):
         self.enable_wake = False
@@ -443,19 +411,19 @@ class WakeThread(QThread):
         r = sr.Recognizer()
         # 使用麦克风录制语音
         with sr.Microphone() as source:
-            self.ans_signal.emit("System: 请说话...\n")
+            self.text_signal.emit("System: 请说话...\n")
             audio = r.listen(source)
         # 将语音转换为文本
         try:
             text = r.recognize_google(audio, language='zh-CN')
-            self.ans_signal.emit("User: " + text + "\n")
+            self.text_signal.emit("User: " + text + "\n")
             return text
         except sr.UnknownValueError:
-            self.ans_signal.emit("System: 无法识别语音!请重试！\n")
+            self.text_signal.emit("System: 无法识别语音!请重试！\n")
             text2audio("无法识别语音!请重试！")
             return -1
         except sr.RequestError as e:
-            self.ans_signal.emit("System: 请求出错：" + str(e) + "\n")
+            self.text_signal.emit("System: 请求出错：" + str(e) + "\n")
             text2audio("请求出错!请重试！")
             return -1
 
