@@ -16,7 +16,7 @@ cfg.merge_from_file("deep_sort/configs/deep_sort.yaml")
 deepsort = DeepSort(cfg.DEEPSORT.REID_CKPT,
                     max_dist=cfg.DEEPSORT.MAX_DIST, min_confidence=cfg.DEEPSORT.MIN_CONFIDENCE,
                     nms_max_overlap=cfg.DEEPSORT.NMS_MAX_OVERLAP, max_iou_distance=cfg.DEEPSORT.MAX_IOU_DISTANCE,
-                    max_age=cfg.DEEPSORT.MAX_AGE, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
+                    max_age=9999, n_init=cfg.DEEPSORT.N_INIT, nn_budget=cfg.DEEPSORT.NN_BUDGET,
                     use_cuda=True)
 
 
@@ -75,7 +75,7 @@ def update_tracker(target_detector, image):
     # 更新deepsort跟踪器
     outputs = deepsort.update(xywhs, confss, clss, image)
 
-####################################################################
+    ####################################################################
     # 存储需要绘制的边界框和人脸边界框
     bboxes2draw = []
     face_bboxes = []
@@ -103,14 +103,14 @@ def update_tracker(target_detector, image):
             face_bboxes.append(
                 (x1, y1, x2, y2)
             )
-####################################################################
+    ####################################################################
 
     # 存储需要删除的跟踪ID
     ids2delete = []
     for history_id in target_detector.faceTracker:
         if not history_id in current_ids:
             target_detector.faceTracker[history_id] -= 1
-        if target_detector.faceTracker[history_id] < -5:
+        if target_detector.faceTracker[history_id] < -9999:
             ids2delete.append(history_id)
 
     # 删除跟踪ID并输出提示信息
