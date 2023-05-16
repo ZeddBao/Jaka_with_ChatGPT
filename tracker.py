@@ -92,11 +92,12 @@ def update_tracker(target_detector, image):
         current_ids.append(track_id)
 
         obj_info.append(
-            ((x1 + x2) / 2, (y1 + y2) / 2, (x1 - x2) * (y1 - y2), track_id)
+            (track_id, int((x1 + x2) / 2), int((y1 + y2) / 2), int((x1 - x2) * (y1 - y2)), cls_, image[y1:y2, x1:x2])
         )
+
         # 如果是人脸，则将人脸信息存储到列表中
         if cls_ == 'face':
-            if not track_id in target_detector.faceTracker:
+            if track_id not in target_detector.faceTracker:
                 target_detector.faceTracker[track_id] = 0
                 face = image[y1:y2, x1:x2]
                 new_faces.append((face, track_id))
@@ -108,7 +109,7 @@ def update_tracker(target_detector, image):
     # 存储需要删除的跟踪ID
     ids2delete = []
     for history_id in target_detector.faceTracker:
-        if not history_id in current_ids:
+        if history_id not in current_ids:
             target_detector.faceTracker[history_id] -= 1
         if target_detector.faceTracker[history_id] < -9999:
             ids2delete.append(history_id)
@@ -120,5 +121,6 @@ def update_tracker(target_detector, image):
 
     # 在图像上绘制边界框并返回图像、新的人脸列表和人脸边界框列表
     image = plot_bboxes(image, bboxes2draw)
-
+    # for obj in obj_info:
+    #     print(obj[0], obj[1], obj[2], obj[3], obj[4])
     return image, new_faces, face_bboxes, obj_info

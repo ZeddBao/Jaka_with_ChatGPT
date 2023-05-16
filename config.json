@@ -1,0 +1,6 @@
+{
+  "WhiteList": ["person", "car", "laptop", "bottle", "suitcase", "cup", "cell phone", "keyboard", "mouse", "camera"],
+  "max_lose_count": 200,
+  "max_attention_count": 60,
+  "random_count": 200
+}
